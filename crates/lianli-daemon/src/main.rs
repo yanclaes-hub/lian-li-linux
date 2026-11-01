@@ -44,7 +44,7 @@ fn default_socket_path(system: bool) -> PathBuf {
 #[command(
     author,
     version,
-    about = "Linux daemon for Lian Li fan control and LCD streaming"
+    about = "Wireless-only daemon for Lian Li fan control and RGB management"
 )]
 struct Cli {
     /// Path to the configuration file
@@ -75,54 +75,6 @@ struct Cli {
 enum Commands {
     /// Print build and IPC capabilities without loading configuration or accessing hardware
     Capabilities,
-    /// Validate an opened media file without starting hardware control
-    #[command(hide = true)]
-    CheckMediaDecode {
-        #[arg(long, value_enum)]
-        kind: media_decode::Kind,
-        #[arg(long)]
-        extension: Option<String>,
-    },
-    /// Check JSON media dependencies from stdin without starting hardware control
-    #[command(hide = true)]
-    CheckMediaAccess,
-    /// LCD utilities and maintenance
-    Lcd {
-        #[command(subcommand)]
-        command: LcdCommands,
-    },
-}
-
-pub const MAX_CLEAN_MINUTES: u16 = lianli_shared::ipc::MAX_CLEAN_MINUTES;
-
-fn parse_clean_minutes(s: &str) -> Result<u16, String> {
-    let value: u64 = s
-        .trim()
-        .parse()
-        .map_err(|_| "Duration must be a positive integer".to_string())?;
-    if value == 0 {
-        return Err("Duration must be positive".into());
-    }
-    Ok(value.min(u64::from(MAX_CLEAN_MINUTES)) as u16)
-}
-
-#[derive(Subcommand, Debug)]
-enum LcdCommands {
-    /// Run pixel conditioning / exercise loop to clear image retention
-    Clean {
-        /// Target device ID (or all detected LCDs if omitted)
-        #[arg(long)]
-        device_id: Option<String>,
-
-        /// Duration in minutes to run cleaner (default: 30)
-        #[arg(
-            long,
-            default_value = "30",
-            allow_hyphen_values = true,
-            value_parser = parse_clean_minutes
-        )]
-        minutes: u16,
-    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -135,15 +87,6 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Capabilities) => {
             serde_json::to_writer(std::io::stdout().lock(), &ipc::build_info())?;
             return Ok(());
-        }
-        Some(Commands::CheckMediaAccess) => return media_access::run_cli(),
-        Some(Commands::CheckMediaDecode { kind, extension }) => {
-            return media_decode::run(kind, extension.as_deref())
-        }
-        Some(Commands::Lcd {
-            command: LcdCommands::Clean { device_id, minutes },
-        }) => {
-            return pixel_cleaner::run_clean_command(socket, device_id, minutes);
         }
         None => {}
     }
@@ -175,6 +118,14 @@ fn main() -> anyhow::Result<()> {
         tracing::warn!(backup = %backup, "Recovered interrupted state publication before starting hardware control");
     }
 
+    if service::WIRELESS_ONLY_MODE {
+        tracing::warn!(
+            "wireless-only build active: LCD, media, desktop-display and startup-image code paths are disabled."
+        );
+        drop(pidlock);
+        return Ok(());
+    }
+
     let mode = if system {
         lianli_shared::daemon::DaemonMode::System
     } else {
@@ -191,7 +142,6 @@ fn main() -> anyhow::Result<()> {
         let args: Vec<String> = std::env::args().skip(1).collect();
         tracing::info!("Re-executing daemon: {} {}", exe.display(), args.join(" "));
         let err = std::process::Command::new(exe).args(args).exec();
-        // exec() only returns on error
         anyhow::bail!("Failed to re-exec daemon: {err}");
     }
 
@@ -218,23 +168,6 @@ mod tests {
         assert_eq!(
             parsed.service_invocation.as_deref(),
             Some("abcdef0123456789abcdef0123456789")
-        );
-    }
-
-    #[test]
-    fn cleaner_duration_rejects_nonpositive_and_invalid_input() {
-        for value in ["0", "-0", "-1", "-5000", "abc", "1.5", ""] {
-            assert!(parse_clean_minutes(value).is_err(), "{value}");
-        }
-    }
-
-    #[test]
-    fn cleaner_duration_preserves_positive_values_and_clamps_upper_bound() {
-        assert_eq!(parse_clean_minutes("30").unwrap(), 30);
-        assert_eq!(parse_clean_minutes("+45").unwrap(), 45);
-        assert_eq!(
-            parse_clean_minutes("4294967306").unwrap(),
-            MAX_CLEAN_MINUTES
         );
     }
 }
