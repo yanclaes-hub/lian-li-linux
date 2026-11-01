@@ -13,8 +13,6 @@ lianli-shared = { path = "../lianli-shared" }
 lianli-control = { path = "../lianli-control" }
 lianli-transport = { path = "../lianli-transport" }
 lianli-devices = { path = "../lianli-devices" }
-lianli-display = { path = "../lianli-display" }
-lianli-media = { path = "../lianli-media" }
 base64 = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
