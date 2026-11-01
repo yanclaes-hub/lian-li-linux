@@ -43,23 +43,18 @@ fn default_socket_path(system: bool) -> PathBuf {
     about = "Wireless-only daemon for Lian Li fan control and RGB management"
 )]
 struct Cli {
-    /// Path to the configuration file
     #[arg(long)]
     config: Option<PathBuf>,
 
-    /// IPC socket path
     #[arg(long)]
     socket: Option<PathBuf>,
 
-    /// Run as a system service
     #[arg(long)]
     system: bool,
 
-    /// Runtime invocation ID supplied by the host service wrapper
     #[arg(long, hide = true, value_parser = lianli_shared::daemon::parse_service_invocation)]
     service_invocation: Option<String>,
 
-    /// Logging verbosity (error, warn, info, debug, trace)
     #[arg(long, default_value = "info")]
     log_level: String,
 
@@ -69,7 +64,6 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Print build and IPC capabilities without loading configuration or accessing hardware
     Capabilities,
 }
 
@@ -101,20 +95,22 @@ fn main() -> anyhow::Result<()> {
     } else {
         lianli_shared::services::ServiceScope::User
     };
+
     if let Some(reason) = lianli_control::service_selection::launch_block_reason(&context, scope)? {
         tracing::info!("{reason}");
         return Ok(());
     }
+
     let pidlock = pidlock::PidLock::acquire()?;
     if let Some(reason) = lianli_control::service_selection::launch_block_reason(&context, scope)? {
         tracing::info!("Host selection changed before startup. {reason}");
         return Ok(());
     }
+
     if let Some(backup) = lianli_control::state_transaction::recover(&config)? {
         tracing::warn!(backup = %backup, "Recovered interrupted state publication before starting hardware control");
     }
 
-    // Wireless-only mode keeps the daemon in a minimal state and avoids LCD/media/display startup loops.
     if service::WIRELESS_ONLY_MODE {
         tracing::warn!(
             "wireless-only build active: LCD, media, desktop-display, and startup-image code paths are disabled."
@@ -128,19 +124,11 @@ fn main() -> anyhow::Result<()> {
     } else {
         lianli_shared::daemon::DaemonMode::User
     };
+
     let mut manager = service::ServiceManager::new(config, socket, mode)?;
     manager.set_ownership_lock(pidlock.identity()?);
     manager.set_service_invocation(cli.service_invocation);
-    let restart = manager.run(&signals)?;
-
-    if restart && !signals.requested() {
-        use std::os::unix::process::CommandExt;
-        let exe = std::env::current_exe()?;
-        let args: Vec<String> = std::env::args().skip(1).collect();
-        tracing::info!("Re-executing daemon: {} {}", exe.display(), args.join(" "));
-        let err = std::process::Command::new(exe).args(args).exec();
-        anyhow::bail!("Failed to re-exec daemon: {err}");
-    }
+    let _restart = manager.run(&signals)?;
 
     Ok(())
 }
