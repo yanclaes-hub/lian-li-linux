@@ -1,9 +1,6 @@
 mod catalog_references;
 mod controllers;
-mod desktop_display;
 mod ipc;
-mod media_access;
-mod media_decode;
 mod openrgb_server;
 mod persistence;
 mod pidlock;
@@ -11,7 +8,6 @@ mod pixel_cleaner;
 mod service;
 mod state_backups;
 mod state_health;
-mod template_store;
 mod thermal_alert;
 
 use clap::{Parser, Subcommand};
@@ -118,9 +114,10 @@ fn main() -> anyhow::Result<()> {
         tracing::warn!(backup = %backup, "Recovered interrupted state publication before starting hardware control");
     }
 
+    // Wireless-only mode keeps the daemon in a minimal state and avoids LCD/media/display startup loops.
     if service::WIRELESS_ONLY_MODE {
         tracing::warn!(
-            "wireless-only build active: LCD, media, desktop-display and startup-image code paths are disabled."
+            "wireless-only build active: LCD, media, desktop-display, and startup-image code paths are disabled."
         );
         drop(pidlock);
         return Ok(());
